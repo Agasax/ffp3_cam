@@ -1,0 +1,116 @@
+---
+title: "README"
+author: "Lars Mølgaard Saxhaug"
+date: "6/29/2021"
+output: github_document
+---
+
+## Bayesian reanalysis on the basis of ["FFP3 respirators protect healthcare workers against infection  with SARS-CoV-2"](https://authorea.com/users/421653/articles/527590-ffp3-respirators-protect-healthcare-workers-against-infection-with-sars-cov-2)
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidybayes)
+library(tidylog)
+library(janitor)
+library(snakecase)
+library(lubridate)
+library(here)
+library(rethinking)
+library(tidybayes.rethinking)
+theme_set(theme_tidybayes())
+```
+
+```{r data}
+df <- tibble::tribble(
+  ~Week, ~Week.start, ~Red.cases, ~Red.ward.days, ~Red.cases.per.ward.day, ~Green.cases, ~Green.ward.days, ~Green.cases.per.ward.day, ~Excluded.cases, ~Total, ~Community,
+  1L, "02/11/2020", 0L, 7L, 0, 5L, 245L, 0.02, 16L, 21L, 7876L,
+  2L, "09/11/2020", 2L, 7L, 0.286, 7L, 245L, 0.028, 33L, 42L, 9499L,
+  3L, "16/11/2020", 1L, 12L, 0.083, 3L, 240L, 0.013, 26L, 30L, 7998L,
+  4L, "23/11/2020", 1L, 14L, 0.071, 6L, 238L, 0.025, 24L, 31L, 7203L,
+  5L, "30/11/2020", 3L, 14L, 0.214, 6L, 238L, 0.025, 20L, 29L, 9441L,
+  6L, "07/12/2020", 5L, 14L, 0.357, 10L, 238L, 0.042, 33L, 48L, 16535L,
+  7L, "14/12/2020", 1L, 14L, 0.071, 7L, 238L, 0.029, 41L, 49L, 31219L,
+  8L, "21/12/2020", 3L, 14L, 0.214, 10L, 238L, 0.042, 56L, 69L, 37259L,
+  9L, "28/12/2020", 2L, 21L, 0.095, 20L, 231L, 0.087, 58L, 80L, 50110L,
+  10L, "04/01/2021", 4L, 29L, 0.138, 34L, 223L, 0.152, 70L, 108L, 41663L,
+  11L, "11/01/2021", 5L, 50L, 0.1, 34L, 202L, 0.168, 63L, 102L, 31341L
+) %>%
+  rename_with(to_snake_case) %>%
+  mutate(week_start = as_date(parse_date_time(week_start, orders = "dmy"))) 
+# pivot longer, create stan compatible data
+df_mod <- df %>%
+  pivot_longer(starts_with("red") | starts_with("green"), names_to = c("ward", "variable"), names_pattern = "(\\w[^_]*)_?(.*)") %>%
+  mutate(across(where(is.character), as.factor),
+         community=as.numeric(community)) %>%
+  pivot_wider(values_from = value, names_from = variable) %>%
+  mutate(fp=as.integer(ifelse(ward=="green",1,ifelse(week<9,2,3)))) %>% select(cases,community,fp,ward_days) %>% 
+  as.list()
+```
+
+#### Model sampling
+
+k: constant for community derived infections
+
+b: corresponding to g, r1 and r2 parameters in original paper, parameter for ward derived infections
+
+```{r fit}
+#using rethinking package to compose and sample stan model
+m1 <- ulam(alist(
+  cases ~ dpois(lambda), # poisson likelihood
+  lambda <- (k * community + b[fp]) * ward_days,
+  k ~ dexp(1),
+  b[fp] ~ dexp(1)
+), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"))
+precis(m1, depth = 2)
+plot(m1, depth = 2)
+stancode(m1)
+```
+
+#### Stancode:
+
+```{r stancode}
+rethinking::stancode(m1)
+```
+
+#### Mean and credible intervals corresponding to table 2 in the paper
+
+```{r sample_parameters, message=FALSE}
+
+
+m1 %>%
+  gather_draws(k, b[fp]) %>%
+  mutate(fp = factor(fp, levels = 1:4, labels = c("green", "red_pre_ffp3", "red_post_ffp3", "na"))) %>%
+  mean_hdi(.value) %>%
+  mutate(parameter = ifelse(.variable == "b", paste(.variable, fp, sep = "_"), .variable)) %>%
+  ungroup() %>%
+  select(parameter, .value, .lower, .upper) %>%
+  mutate(parameter = as.character(parameter)) %>%
+  bind_rows(., m1 %>%
+    spread_draws(k, b[fp]) %>%
+    mutate(fp = factor(fp, levels = 1:3, labels = c("b_green", "b_red_pre_ffp3", "b_red_post_ffp3"))) %>%
+    compare_levels(b, by = fp, fun = `/`) %>%
+    mean_hdci() %>%
+    select(fp, b, .lower, .upper) %>%
+    rename("parameter" = fp, ".value" = b)) %>%
+  mutate(parameter = factor(parameter, levels = c(
+    "k", "b_green", "b_red_pre_ffp3", "b_red_post_ffp3", "b_red_post_ffp3 / b_red_pre_ffp3", "b_red_pre_ffp3 / b_green",
+    "b_red_post_ffp3 / b_green"
+  ))) %>%
+  arrange(parameter) %>%
+  knitr::kable(col.names = c("Model parameter", "Posterior mean", "Lower bound 95% cred. int.", "Upper bound 95% cred. int"))
+
+
+```
+
+#### Posterior distributions for ward driven infection risk
+
+```{r plot}
+m1 %>% 
+  spread_draws(k,b[fp]) %>% 
+  mutate(fp=factor(fp,levels = 1:3,labels = c("green","red_pre_ffp3","red_post_ffp3"))) %>%
+  ggplot(aes(x=b,y=fp))+
+  stat_halfeye() +
+  scale_x_continuous(name = "Posterior distribution for b parameter")+
+  scale_y_discrete(name = NULL)
+
+```
