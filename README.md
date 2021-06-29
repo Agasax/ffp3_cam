@@ -61,7 +61,8 @@ b: corresponding to g, r1 and r2 parameters in original paper, parameter
 for ward derived infections
 
 ``` r
-#using rethinking package to compose and sample stan model
+# using rethinking package to compose and sample stan model
+# priors are very uninformative
 m1 <- ulam(alist(
   cases ~ dpois(lambda), # poisson likelihood
   lambda <- (k * community + b[fp]) * ward_days,
