@@ -84,30 +84,6 @@ plot(m1, depth = 2)
 
 ![](README_files/figure-gfm/fit-1.png)<!-- -->
 
-``` r
-stancode(m1)
-```
-
-    ## data{
-    ##     int cases[22];
-    ##     int ward_days[22];
-    ##     int fp[22];
-    ##     int community[22];
-    ## }
-    ## parameters{
-    ##     real<lower=0> k;
-    ##     vector<lower=0>[3] b;
-    ## }
-    ## model{
-    ##     vector[22] lambda;
-    ##     b ~ exponential( 1 );
-    ##     k ~ exponential( 1 );
-    ##     for ( i in 1:22 ) {
-    ##         lambda[i] = (k * community[i] + b[fp[i]]) * ward_days[i];
-    ##     }
-    ##     cases ~ poisson( lambda );
-    ## }
-
 #### Stancode:
 
 ``` r

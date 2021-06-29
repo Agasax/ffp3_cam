@@ -64,7 +64,6 @@ m1 <- ulam(alist(
 ), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"))
 precis(m1, depth = 2)
 plot(m1, depth = 2)
-stancode(m1)
 ```
 
 #### Stancode:
