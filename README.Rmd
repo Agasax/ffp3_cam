@@ -1,7 +1,7 @@
 ---
 title: "README"
-author: "Lars Mølgaard Saxhaug"
-date: "6/29/2021"
+author: "Created by Lars Mølgaard Saxhaug\n"
+date: "Last compiled on `r format(Sys.time(), '%A %d %B, %Y')`"
 output: github_document
 ---
 

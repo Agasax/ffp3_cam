@@ -1,7 +1,8 @@
 README
 ================
-Lars Mølgaard Saxhaug
-6/29/2021
+Created by Lars Mølgaard Saxhaug
+
+Last compiled on Wednesday 30 June, 2021
 
 ## Bayesian reanalysis on the basis of [“FFP3 respirators protect healthcare workers against infection with SARS-CoV-2”](https://authorea.com/users/421653/articles/527590-ffp3-respirators-protect-healthcare-workers-against-infection-with-sars-cov-2)
 
