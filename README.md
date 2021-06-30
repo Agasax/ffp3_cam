@@ -35,7 +35,9 @@ df_mod <- df %>%
   mutate(across(where(is.character), as.factor),
          community=as.numeric(community)) %>%
   pivot_wider(values_from = value, names_from = variable) %>%
-  mutate(fp=as.integer(ifelse(ward=="green",1,ifelse(week<9,2,3)))) %>% select(cases,community,fp,ward_days) %>% 
+  mutate(fp=as.integer(ifelse(ward=="green",1,ifelse(week<9,2,3)))) %>% # create variable for green ward, red before and after ffp3 
+  select(cases,community,fp,ward_days) %>% 
+  mutate(adj_community=community/5847000) %>% 
   as.list()
 ```
 
@@ -53,6 +55,8 @@ df_mod <- df %>%
 
     ## select: dropped 6 variables (week, week_start, excluded_cases, total, ward, …)
 
+    ## mutate: new variable 'adj_community' (double) with 11 unique values and 0% NA
+
 #### Model sampling
 
 k: constant for community derived infections
@@ -68,15 +72,15 @@ m1 <- ulam(alist(
   lambda <- (k * community + b[fp]) * ward_days,
   k ~ dexp(1),
   b[fp] ~ dexp(1)
-), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"))
+), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"), start = list(k=0.001,b=rep(0.001,3)))
 precis(m1, depth = 2)
 ```
 
-    ##              mean           sd         5.5%        94.5%    n_eff    Rhat4
-    ## k    2.163690e-06 2.811082e-07 1.701046e-06 2.608647e-06 1622.242 1.003194
-    ## b[1] 7.159328e-03 4.873768e-03 8.483119e-04 1.610184e-02 1299.317 1.002379
-    ## b[2] 1.397804e-01 4.119078e-02 8.059234e-02 2.105205e-01 2730.236 1.001109
-    ## b[3] 4.458243e-02 3.157221e-02 4.395731e-03 1.006397e-01 2021.395 1.001550
+    ##              mean           sd         5.5%        94.5%    n_eff     Rhat4
+    ## k    2.164580e-06 2.890418e-07 1.690729e-06 2.609768e-06 1747.046 1.0012883
+    ## b[1] 7.141762e-03 5.027339e-03 7.821723e-04 1.639926e-02 1713.172 0.9996161
+    ## b[2] 1.385030e-01 4.331747e-02 7.503606e-02 2.118394e-01 2205.909 1.0030162
+    ## b[3] 4.472306e-02 3.106183e-02 4.823845e-03 1.004583e-01 2351.226 1.0006369
 
 ``` r
 traceplot(m1)
@@ -86,15 +90,16 @@ traceplot(m1)
     ## [1] 1
     ## [1] 2000
 
-![](README_files/figure-gfm/fit-1.png)<!-- -->
+![](README_files/figure-gfm/fit1-1.png)<!-- -->
 
-#### Stancode:
+#### Stancode for original model:
 
 ``` r
 rethinking::stancode(m1)
 ```
 
     ## data{
+    ##     vector[22] adj_community;
     ##     int cases[22];
     ##     int ward_days[22];
     ##     int fp[22];
@@ -143,12 +148,12 @@ m1 %>%
 | Model parameter                        | Posterior mean | Lower bound 95% cred. int. | Upper bound 95% cred. int |
 |:---------------------------------------|---------------:|---------------------------:|--------------------------:|
 | k                                      |      0.0000022 |                  0.0000016 |                 0.0000027 |
-| b\_green                               |      0.0071593 |                  0.0000150 |                 0.0164193 |
-| b\_red\_pre\_ffp3                      |      0.1397804 |                  0.0684703 |                 0.2248190 |
-| b\_red\_post\_ffp3                     |      0.0445824 |                  0.0000371 |                 0.1026371 |
-| b\_red\_post\_ffp3 / b\_red\_pre\_ffp3 |      0.3449485 |                  0.0002922 |                 0.8666339 |
-| b\_red\_pre\_ffp3 / b\_green           |     68.4749708 |                  3.1388856 |               174.3314466 |
-| b\_red\_post\_ffp3 / b\_green          |     19.4586523 |                  0.0136258 |                49.6233662 |
+| b\_green                               |      0.0071418 |                  0.0000210 |                 0.0168303 |
+| b\_red\_pre\_ffp3                      |      0.1385030 |                  0.0590271 |                 0.2253227 |
+| b\_red\_post\_ffp3                     |      0.0447231 |                  0.0001107 |                 0.1034016 |
+| b\_red\_post\_ffp3 / b\_red\_pre\_ffp3 |      0.3607249 |                  0.0002565 |                 0.9171632 |
+| b\_red\_pre\_ffp3 / b\_green           |     59.6766937 |                  2.5617546 |               187.8821101 |
+| b\_red\_post\_ffp3 / b\_green          |     19.0059861 |                  0.0088338 |                56.3620259 |
 
 #### Posterior distributions for ward driven infection risk
 
@@ -165,3 +170,70 @@ m1 %>%
     ## mutate (grouped): converted 'fp' from integer to factor (0 new NA)
 
 ![](README_files/figure-gfm/plot-1.png)<!-- -->
+
+#### Model 2 with adjusted community cases
+
+``` r
+# replaced community with community cases adjusted for population 
+m2 <- ulam(alist(
+  cases ~ dpois(lambda), # poisson likelihood
+  lambda <- (k * adj_community + b[fp]) * ward_days,
+  k ~ dexp(1),
+  b[fp] ~ dexp(1)
+), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m2"),start=list(k=1,b=rep(0.01,3)))
+precis(m2, depth = 2)
+```
+
+    ##            mean          sd        5.5%       94.5%    n_eff    Rhat4
+    ## k    9.86624531 1.749643452 7.083834832 12.69640794 1523.208 1.004535
+    ## b[1] 0.01433647 0.006685448 0.004275927  0.02592228 1519.241 1.004474
+    ## b[2] 0.14770989 0.043184401 0.085562865  0.22283579 1912.572 1.001299
+    ## b[3] 0.05790809 0.034407285 0.009668158  0.11974951 1799.306 1.003092
+
+``` r
+traceplot(m2)
+```
+
+    ## [1] 2000
+    ## [1] 1
+    ## [1] 2000
+
+![](README_files/figure-gfm/fit2-1.png)<!-- -->
+
+#### Mean and credible intervals corresponding to table 2 in the paper for the new model
+
+``` r
+m2 %>%
+  gather_draws(k, b[fp]) %>%
+  mutate(fp = factor(fp, levels = 1:4, labels = c("green", "red_pre_ffp3", "red_post_ffp3", "na"))) %>%
+  mean_hdi(.value) %>%
+  mutate(parameter = ifelse(.variable == "b", paste(.variable, fp, sep = "_"), .variable)) %>%
+  ungroup() %>%
+  select(parameter, .value, .lower, .upper) %>%
+  mutate(parameter = as.character(parameter)) %>%
+  bind_rows(., m1 %>%
+    spread_draws(k, b[fp]) %>%
+    mutate(fp = factor(fp, levels = 1:3, labels = c("b_green", "b_red_pre_ffp3", "b_red_post_ffp3"))) %>%
+    compare_levels(b, by = fp, fun = `/`) %>%
+    mean_hdci() %>%
+    select(fp, b, .lower, .upper) %>%
+    rename("parameter" = fp, ".value" = b)) %>%
+  mutate(parameter = factor(parameter, levels = c(
+    "k", "b_green", "b_red_pre_ffp3", "b_red_post_ffp3", "b_red_post_ffp3 / b_red_pre_ffp3", "b_red_pre_ffp3 / b_green",
+    "b_red_post_ffp3 / b_green"
+  ))) %>%
+  arrange(parameter) %>%
+  knitr::kable(col.names = c("Model parameter", "Posterior mean", "Lower bound 95% cred. int.", "Upper bound 95% cred. int"))
+```
+
+| Model parameter                        | Posterior mean | Lower bound 95% cred. int. | Upper bound 95% cred. int |
+|:---------------------------------------|---------------:|---------------------------:|--------------------------:|
+| k                                      |      9.8662453 |                  6.5757859 |                13.3715855 |
+| b\_green                               |      0.0143365 |                  0.0020416 |                 0.0277064 |
+| b\_red\_pre\_ffp3                      |      0.1477099 |                  0.0720374 |                 0.2407812 |
+| b\_red\_post\_ffp3                     |      0.0579081 |                  0.0008656 |                 0.1219918 |
+| b\_red\_post\_ffp3 / b\_red\_pre\_ffp3 |      0.3607249 |                  0.0002565 |                 0.9171632 |
+| b\_red\_pre\_ffp3 / b\_green           |     59.6766937 |                  2.5617546 |               187.8821101 |
+| b\_red\_post\_ffp3 / b\_green          |     19.0059861 |                  0.0088338 |                56.3620259 |
+
+#### 

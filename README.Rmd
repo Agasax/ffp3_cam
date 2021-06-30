@@ -43,7 +43,9 @@ df_mod <- df %>%
   mutate(across(where(is.character), as.factor),
          community=as.numeric(community)) %>%
   pivot_wider(values_from = value, names_from = variable) %>%
-  mutate(fp=as.integer(ifelse(ward=="green",1,ifelse(week<9,2,3)))) %>% select(cases,community,fp,ward_days) %>% 
+  mutate(fp=as.integer(ifelse(ward=="green",1,ifelse(week<9,2,3)))) %>% # create variable for green ward, red before and after ffp3 
+  select(cases,community,fp,ward_days) %>% 
+  mutate(adj_community=community/5847000) %>% 
   as.list()
 ```
 
@@ -53,7 +55,7 @@ k: constant for community derived infections
 
 b: corresponding to g, r1 and r2 parameters in original paper, parameter for ward derived infections
 
-```{r fit}
+```{r fit1}
 # using rethinking package to compose and sample stan model
 # priors are very uninformative
 m1 <- ulam(alist(
@@ -61,14 +63,14 @@ m1 <- ulam(alist(
   lambda <- (k * community + b[fp]) * ward_days,
   k ~ dexp(1),
   b[fp] ~ dexp(1)
-), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"))
+), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"), start = list(k=0.001,b=rep(0.001,3)))
 precis(m1, depth = 2)
 traceplot(m1)
 ```
 
-#### Stancode:
+#### Stancode for original model:
 
-```{r stancode}
+```{r stancode1}
 rethinking::stancode(m1)
 ```
 
@@ -114,3 +116,49 @@ m1 %>%
   scale_y_discrete(name = NULL)
 
 ```
+
+#### Model 2 with adjusted community cases
+
+```{r fit2}
+# replaced community with community cases adjusted for population 
+m2 <- ulam(alist(
+  cases ~ dpois(lambda), # poisson likelihood
+  lambda <- (k * adj_community + b[fp]) * ward_days,
+  k ~ dexp(1),
+  b[fp] ~ dexp(1)
+), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m2"),start=list(k=1,b=rep(0.01,3)))
+precis(m2, depth = 2)
+traceplot(m2)
+```
+
+#### Mean and credible intervals corresponding to table 2 in the paper for the new model
+
+```{r sample_parameters_mod2, message=FALSE}
+
+
+m2 %>%
+  gather_draws(k, b[fp]) %>%
+  mutate(fp = factor(fp, levels = 1:4, labels = c("green", "red_pre_ffp3", "red_post_ffp3", "na"))) %>%
+  mean_hdi(.value) %>%
+  mutate(parameter = ifelse(.variable == "b", paste(.variable, fp, sep = "_"), .variable)) %>%
+  ungroup() %>%
+  select(parameter, .value, .lower, .upper) %>%
+  mutate(parameter = as.character(parameter)) %>%
+  bind_rows(., m1 %>%
+    spread_draws(k, b[fp]) %>%
+    mutate(fp = factor(fp, levels = 1:3, labels = c("b_green", "b_red_pre_ffp3", "b_red_post_ffp3"))) %>%
+    compare_levels(b, by = fp, fun = `/`) %>%
+    mean_hdci() %>%
+    select(fp, b, .lower, .upper) %>%
+    rename("parameter" = fp, ".value" = b)) %>%
+  mutate(parameter = factor(parameter, levels = c(
+    "k", "b_green", "b_red_pre_ffp3", "b_red_post_ffp3", "b_red_post_ffp3 / b_red_pre_ffp3", "b_red_pre_ffp3 / b_green",
+    "b_red_post_ffp3 / b_green"
+  ))) %>%
+  arrange(parameter) %>%
+  knitr::kable(col.names = c("Model parameter", "Posterior mean", "Lower bound 95% cred. int.", "Upper bound 95% cred. int"))
+
+
+```
+
+#### 
