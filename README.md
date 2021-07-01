@@ -1,8 +1,8 @@
-README
+FFP3 Reanalysis
 ================
 Created by Lars Mølgaard Saxhaug
 
-Last compiled on Wednesday 30 June, 2021
+Last compiled on Thursday 01 July, 2021
 
 ## Bayesian reanalysis on the basis of [“FFP3 respirators protect healthcare workers against infection with SARS-CoV-2”](https://authorea.com/users/421653/articles/527590-ffp3-respirators-protect-healthcare-workers-against-infection-with-sars-cov-2)
 
@@ -38,7 +38,6 @@ df_mod <- df %>%
   pivot_wider(values_from = value, names_from = variable) %>%
   mutate(fp=as.integer(ifelse(ward=="green",1,ifelse(week<9,2,3)))) %>% # create variable for green ward, red before and after ffp3 
   select(cases,community,fp,ward_days) %>% 
-  mutate(adj_community=community/5847000) %>% 
   as.list()
 ```
 
@@ -56,8 +55,6 @@ df_mod <- df %>%
 
     ## select: dropped 6 variables (week, week_start, excluded_cases, total, ward, …)
 
-    ## mutate: new variable 'adj_community' (double) with 11 unique values and 0% NA
-
 #### Model sampling
 
 k: constant for community derived infections
@@ -67,21 +64,24 @@ for ward derived infections
 
 ``` r
 # using rethinking package to compose and sample stan model
-# priors are very uninformative
 m1 <- ulam(alist(
   cases ~ dpois(lambda), # poisson likelihood
-  lambda <- (k * community + b[fp]) * ward_days,
-  k ~ dexp(1),
-  b[fp] ~ dexp(1)
-), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m1"), start = list(k=0.001,b=rep(0.001,3)))
+  lambda <- (k * community + b[fp]) * ward_days, #scientific model
+  k ~ dcauchy(0,1), # prior for community effect
+  b[fp] ~ dcauchy(0,1) # prior for ward / ffp3 effect
+), data = df_mod, chains = 4, 
+iter = 2000, cores = 4,
+file = here("fits", "m1"),
+constraints = list(k="lower=0",b="lower=0"), 
+start = list(k=0.001,b=rep(0.001,3)))
 precis(m1, depth = 2)
 ```
 
     ##              mean           sd         5.5%        94.5%    n_eff     Rhat4
-    ## k    2.164580e-06 2.890418e-07 1.690729e-06 2.609768e-06 1747.046 1.0012883
-    ## b[1] 7.141762e-03 5.027339e-03 7.821723e-04 1.639926e-02 1713.172 0.9996161
-    ## b[2] 1.385030e-01 4.331747e-02 7.503606e-02 2.118394e-01 2205.909 1.0030162
-    ## b[3] 4.472306e-02 3.106183e-02 4.823845e-03 1.004583e-01 2351.226 1.0006369
+    ## k    2.152293e-06 2.845619e-07 1.678309e-06 2.599746e-06 1787.340 0.9996905
+    ## b[1] 7.308385e-03 4.951176e-03 8.260446e-04 1.602630e-02 1919.241 1.0000848
+    ## b[2] 1.394041e-01 4.135465e-02 8.040024e-02 2.088812e-01 2371.895 0.9992472
+    ## b[3] 4.575310e-02 3.047220e-02 4.682344e-03 9.992939e-02 1911.318 1.0010098
 
 ``` r
 traceplot(m1)
@@ -112,8 +112,8 @@ rethinking::stancode(m1)
     ## }
     ## model{
     ##     vector[22] lambda;
-    ##     b ~ exponential( 1 );
-    ##     k ~ exponential( 1 );
+    ##     b ~ cauchy( 0 , 1 );
+    ##     k ~ cauchy( 0 , 1 );
     ##     for ( i in 1:22 ) {
     ##         lambda[i] = (k * community[i] + b[fp[i]]) * ward_days[i];
     ##     }
@@ -149,12 +149,12 @@ m1 %>%
 | Model parameter                        | Posterior mean | Lower bound 95% cred. int. | Upper bound 95% cred. int |
 |:---------------------------------------|---------------:|---------------------------:|--------------------------:|
 | k                                      |      0.0000022 |                  0.0000016 |                 0.0000027 |
-| b\_green                               |      0.0071418 |                  0.0000210 |                 0.0168303 |
-| b\_red\_pre\_ffp3                      |      0.1385030 |                  0.0590271 |                 0.2253227 |
-| b\_red\_post\_ffp3                     |      0.0447231 |                  0.0001107 |                 0.1034016 |
-| b\_red\_post\_ffp3 / b\_red\_pre\_ffp3 |      0.3607249 |                  0.0002565 |                 0.9171632 |
-| b\_red\_pre\_ffp3 / b\_green           |     59.6766937 |                  2.5617546 |               187.8821101 |
-| b\_red\_post\_ffp3 / b\_green          |     19.0059861 |                  0.0088338 |                56.3620259 |
+| b\_green                               |      0.0073084 |                  0.0000033 |                 0.0163757 |
+| b\_red\_pre\_ffp3                      |      0.1394041 |                  0.0633164 |                 0.2204399 |
+| b\_red\_post\_ffp3                     |      0.0457531 |                  0.0000268 |                 0.1017557 |
+| b\_red\_post\_ffp3 / b\_red\_pre\_ffp3 |      0.3581732 |                  0.0001965 |                 0.8697370 |
+| b\_red\_pre\_ffp3 / b\_green           |     96.6963426 |                  2.7325269 |               173.7303154 |
+| b\_red\_post\_ffp3 / b\_green          |     30.1560456 |                  0.0042163 |                52.6390858 |
 
 #### Posterior distributions for ward driven infection risk
 
@@ -171,70 +171,5 @@ m1 %>%
     ## mutate (grouped): converted 'fp' from integer to factor (0 new NA)
 
 ![](README_files/figure-gfm/plot-1.png)<!-- -->
-
-#### Model 2 with adjusted community cases
-
-``` r
-# replaced community with community cases adjusted for population 
-m2 <- ulam(alist(
-  cases ~ dpois(lambda), # poisson likelihood
-  lambda <- (k * adj_community + b[fp]) * ward_days,
-  k ~ dexp(1),
-  b[fp] ~ dexp(1)
-), data = df_mod, chains = 4, iter = 2000, cores = 4, file = here("fits", "m2"),start=list(k=1,b=rep(0.01,3)))
-precis(m2, depth = 2)
-```
-
-    ##            mean          sd        5.5%       94.5%    n_eff    Rhat4
-    ## k    9.86624531 1.749643452 7.083834832 12.69640794 1523.208 1.004535
-    ## b[1] 0.01433647 0.006685448 0.004275927  0.02592228 1519.241 1.004474
-    ## b[2] 0.14770989 0.043184401 0.085562865  0.22283579 1912.572 1.001299
-    ## b[3] 0.05790809 0.034407285 0.009668158  0.11974951 1799.306 1.003092
-
-``` r
-traceplot(m2)
-```
-
-    ## [1] 2000
-    ## [1] 1
-    ## [1] 2000
-
-![](README_files/figure-gfm/fit2-1.png)<!-- -->
-
-#### Mean and credible intervals corresponding to table 2 in the paper for the new model
-
-``` r
-m2 %>%
-  gather_draws(k, b[fp]) %>%
-  mutate(fp = factor(fp, levels = 1:4, labels = c("green", "red_pre_ffp3", "red_post_ffp3", "na"))) %>%
-  mean_hdi(.value) %>%
-  mutate(parameter = ifelse(.variable == "b", paste(.variable, fp, sep = "_"), .variable)) %>%
-  ungroup() %>%
-  select(parameter, .value, .lower, .upper) %>%
-  mutate(parameter = as.character(parameter)) %>%
-  bind_rows(., m1 %>%
-    spread_draws(k, b[fp]) %>%
-    mutate(fp = factor(fp, levels = 1:3, labels = c("b_green", "b_red_pre_ffp3", "b_red_post_ffp3"))) %>%
-    compare_levels(b, by = fp, fun = `/`) %>%
-    mean_hdci() %>%
-    select(fp, b, .lower, .upper) %>%
-    rename("parameter" = fp, ".value" = b)) %>%
-  mutate(parameter = factor(parameter, levels = c(
-    "k", "b_green", "b_red_pre_ffp3", "b_red_post_ffp3", "b_red_post_ffp3 / b_red_pre_ffp3", "b_red_pre_ffp3 / b_green",
-    "b_red_post_ffp3 / b_green"
-  ))) %>%
-  arrange(parameter) %>%
-  knitr::kable(col.names = c("Model parameter", "Posterior mean", "Lower bound 95% cred. int.", "Upper bound 95% cred. int"))
-```
-
-| Model parameter                        | Posterior mean | Lower bound 95% cred. int. | Upper bound 95% cred. int |
-|:---------------------------------------|---------------:|---------------------------:|--------------------------:|
-| k                                      |      9.8662453 |                  6.5757859 |                13.3715855 |
-| b\_green                               |      0.0143365 |                  0.0020416 |                 0.0277064 |
-| b\_red\_pre\_ffp3                      |      0.1477099 |                  0.0720374 |                 0.2407812 |
-| b\_red\_post\_ffp3                     |      0.0579081 |                  0.0008656 |                 0.1219918 |
-| b\_red\_post\_ffp3 / b\_red\_pre\_ffp3 |      0.3607249 |                  0.0002565 |                 0.9171632 |
-| b\_red\_pre\_ffp3 / b\_green           |     59.6766937 |                  2.5617546 |               187.8821101 |
-| b\_red\_post\_ffp3 / b\_green          |     19.0059861 |                  0.0088338 |                56.3620259 |
 
 #### 
